@@ -2,17 +2,17 @@
 
 ## 前提条件
 
-test2 という名前のキーペアを作成しておいてください。
+test2という名前のキーペアを作成しておいてください。
 
 * cli(CLIのセットアップが必要です)
 
-```sh
-aws ec2 create-key-pair --key-name test2 --query 'KeyMaterial' --output text > ~/.ssh/test2.pem
-```
+    ```sh
+    aws ec2 create-key-pair --key-name test2 --query 'KeyMaterial' --output text > ~/.ssh/test2.pem
+    ```
 
 * Management Console
 
-[EC2 キーペアの作成](https://docs.aws.amazon.com/ja_jp/AWSEC2/latest/WindowsGuide/ec2-key-pairs.html#prepare-key-pair)
+    [EC2 キーペアの作成](https://docs.aws.amazon.com/ja_jp/AWSEC2/latest/WindowsGuide/ec2-key-pairs.html#prepare-key-pair)
 
 ## 構築手順
 
@@ -55,4 +55,5 @@ aws ec2 create-key-pair --key-name test2 --query 'KeyMaterial' --output text > ~
     ```
 
 4. target-server-WindowsにRDPでログインし、下記参考をみながらボリュームの割り当てを行う。
+
     [Windows で Amazon EBS ボリュームを使用できるようにします。](https://docs.aws.amazon.com/ja_jp/AWSEC2/latest/WindowsGuide/ebs-using-volumes.html)
