@@ -1,0 +1,278 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ansible server kensho
+
+Mappings:
+  StackConfig:
+    VPC:
+      CIDR: 10.0.0.0/16
+    PublicSubnet:
+      CIDR: 10.0.1.0/24
+
+#-------------------------------------------------------------------------------------------------------------------------
+# Parameter の値は下記コマンドで取得できる。※RHELはなさげ
+# <windows>
+# aws ssm get-parameters --names /aws/service/ami-windows-latest/Windows_Server-2016-Japanese-Full-Base --region us-east-1 
+# <Linux>
+# aws ssm get-parameters --names /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2 --region us-east-1 
+# <参考情報(AMIの一覧取得)>
+# <windows>
+# aws ec2 describe-images --owners amazon --filters "Name=name,Values=Windows_Server-2016-Japanese-Full-Base*" --query 'sort_by(Images, &CreationDate)[-1].[Name,ImageId]'
+# <Linux>
+# aws ec2 describe-images --owners amazon --filters "Name=name,Values=amzn*" --query 'sort_by(Images, &CreationDate)[].Name' 
+#-------------------------------------------------------------------------------------------------------------------------
+
+Parameters:
+  Ec2ImageId1:
+    Type: String
+    Default: ami-0bccc42bba4dedac1
+  Ec2ImageId2:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /aws/service/ami-windows-latest/Windows_Server-2016-Japanese-Full-Base
+
+Resources:
+#---vpc
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: !FindInMap [ StackConfig, VPC, CIDR ]
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: "default"
+      Tags: 
+        - Key: Name
+          Value: ansible_vpc
+
+#---Public RoteTable, Route, Subnet, Assosiation
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: ansible_vpc_publicroutetable
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Sub "${AWS::Region}a"
+      CidrBlock: !FindInMap [ StackConfig, PublicSubnet, CIDR ]
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: true
+      Tags: 
+        - Key: Name
+          Value: ansible_vpc_publicsubnet
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+#---IGW,IGW Attach
+  InternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: client_vpc_igw
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+#---InstanceProfile, Role
+  IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        }
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Path: /
+      RoleName: ArrowSSMRole
+
+  InstancePro:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      InstanceProfileName: InstancePro
+      Path: /
+      Roles: 
+        - !Ref IAMRole
+
+#---SG
+  SecurityGroup1:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Private Subnet Client SecurityGroup"
+      GroupName: "ansible-server-sg"
+      VpcId: !Ref VPC
+      SecurityGroupIngress: 
+        -  
+          CidrIp: "0.0.0.0/0"
+          Description: "allow ssh"
+          FromPort: 22
+          IpProtocol: "tcp"
+          ToPort: 22
+        -
+          CidrIp: "0.0.0.0/0"
+          Description: "allow icmp"
+          FromPort: 8
+          IpProtocol: "icmp"
+          ToPort: -1
+
+  SecurityGroup2:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Private Subnet Client SecurityGroup"
+      GroupName: "target-server-sg"
+      VpcId: !Ref VPC
+      SecurityGroupIngress: 
+        -  
+          CidrIp: "0.0.0.0/0"
+          Description: "allow rdp"
+          FromPort: 3389
+          IpProtocol: "tcp"
+          ToPort: 3389
+        -
+          CidrIp: "0.0.0.0/0"
+          Description: "allow winrm-https"
+          FromPort: 5986
+          IpProtocol: "tcp"
+          ToPort: 5986
+        -
+          CidrIp: "0.0.0.0/0"
+          Description: "allow winrm-http"
+          FromPort: 5985
+          IpProtocol: "tcp"
+          ToPort: 5985
+        -
+          CidrIp: "0.0.0.0/0"
+          Description: "allow icmp"
+          FromPort: 8
+          IpProtocol: "icmp"
+          ToPort: -1
+
+#--EBS
+  WindowsEBS:
+    Type: AWS::EC2::Volume
+    Properties: 
+      AvailabilityZone: !Sub "${AWS::Region}a"
+      Encrypted: false
+      Size: 30
+      Tags: 
+        - Key: "Name"
+          Value: "windows-ebs-d_drive"
+      VolumeType: gp2
+
+#---EC2
+  EC2Instance1:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !Ref Ec2ImageId1
+      IamInstanceProfile: !Ref InstancePro
+      InstanceType: "t2.micro"
+      KeyName: "test2"
+      AvailabilityZone: !Sub "${AWS::Region}a"
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds: 
+        - !Ref SecurityGroup1
+      Tags: 
+        - Key: "Name"
+          Value: "ansible-server"
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          sudo su
+          yum install -y python38
+          dnf install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+          systemctl enable amazon-ssm-agent
+          systemctl start amazon-ssm-agent
+
+  EC2Instance2:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !Ref Ec2ImageId1
+      IamInstanceProfile: !Ref InstancePro
+      InstanceType: "t2.micro"
+      KeyName: "test2"
+      AvailabilityZone: !Sub "${AWS::Region}a"
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds: 
+        - !Ref SecurityGroup1
+      Tags: 
+        - Key: "Name"
+          Value: "target-server-RHEL"
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          sudo su
+          yum install -y python38
+          dnf install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+          systemctl enable amazon-ssm-agent
+          systemctl start amazon-ssm-agent
+
+  EC2Instance3:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !Ref Ec2ImageId2
+      IamInstanceProfile: !Ref InstancePro
+      InstanceType: "t2.micro"
+      KeyName: "test2"
+      AvailabilityZone: !Sub "${AWS::Region}a"
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds: 
+        - !Ref SecurityGroup2
+      Tags: 
+        - Key: "Name"
+          Value: "target-server-windows"
+      UserData:
+        Fn::Base64: |
+          <powershell>
+            $url = "https://raw.githubusercontent.com/ansible/ansible/devel/examples/scripts/ConfigureRemotingForAnsible.ps1"
+            $file = "$env:temp\ConfigureRemotingForAnsible.ps1"
+
+            (New-Object -TypeName System.Net.WebClient).DownloadFile($url, $file)
+
+            powershell.exe -ExecutionPolicy ByPass -File $file
+
+            New-NetFirewallRule `
+            -Name 'ICMPv4' `
+            -DisplayName 'ICMPv4' `
+            -Description 'Allow ICMPv4' `
+            -Profile Any `
+            -Direction Inbound `
+            -Action Allow `
+            -Protocol ICMPv4 `
+            -Program Any `
+            -LocalAddress Any `
+            -RemoteAddress Any 
+          </powershell>
+      Volumes:
+        - Device: xvdh
+          VolumeId: !Ref WindowsEBS
