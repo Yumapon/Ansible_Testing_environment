@@ -22,6 +22,10 @@ Mappings:
 #-------------------------------------------------------------------------------------------------------------------------
 
 Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
   Ec2ImageId1:
     Type: String
     Default: ami-0bccc42bba4dedac1
@@ -114,8 +118,9 @@ Resources:
         }
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
       Path: /
-      RoleName: ArrowSSMRole
+      RoleName: ssm-cwagent-role
 
   InstancePro:
     Type: AWS::IAM::InstanceProfile
@@ -197,7 +202,7 @@ Resources:
       ImageId: !Ref Ec2ImageId1
       IamInstanceProfile: !Ref InstancePro
       InstanceType: "t2.micro"
-      KeyName: "test2"
+      KeyName: !Ref KeyName
       AvailabilityZone: !Sub "${AWS::Region}a"
       SubnetId: !Ref PublicSubnet
       SecurityGroupIds: 
@@ -209,10 +214,14 @@ Resources:
         Fn::Base64: |
           #!/bin/bash
           sudo su
+          yum update -y
           yum install -y python38
           dnf install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
-          systemctl enable amazon-ssm-agent
-          systemctl start amazon-ssm-agent
+          sudo systemctl enable amazon-ssm-agent
+          sudo systemctl start amazon-ssm-agent
+          sudo dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm -y
+          sudo yum install -y collectd
+          rpm -Uvh https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
 
   EC2Instance2:
     Type: "AWS::EC2::Instance"
@@ -220,7 +229,7 @@ Resources:
       ImageId: !Ref Ec2ImageId1
       IamInstanceProfile: !Ref InstancePro
       InstanceType: "t2.micro"
-      KeyName: "test2"
+      KeyName: !Ref KeyName
       AvailabilityZone: !Sub "${AWS::Region}a"
       SubnetId: !Ref PublicSubnet
       SecurityGroupIds: 
@@ -234,8 +243,6 @@ Resources:
           sudo su
           yum install -y python38
           dnf install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
-          systemctl enable amazon-ssm-agent
-          systemctl start amazon-ssm-agent
 
   EC2Instance3:
     Type: "AWS::EC2::Instance"
@@ -243,7 +250,7 @@ Resources:
       ImageId: !Ref Ec2ImageId2
       IamInstanceProfile: !Ref InstancePro
       InstanceType: "t2.micro"
-      KeyName: "test2"
+      KeyName: !Ref KeyName
       AvailabilityZone: !Sub "${AWS::Region}a"
       SubnetId: !Ref PublicSubnet
       SecurityGroupIds: 
